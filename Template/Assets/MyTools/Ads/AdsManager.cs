@@ -2,8 +2,6 @@
 using System.Collections.Generic;
 using UnityEngine;
 using System;
-using GoogleMobileAds.Api;
-using UnityEngine.SceneManagement;
 public class AdsManager : SingletonMonoBehaviour<AdsManager>
 {
     [Header("---SDK ID---")]
