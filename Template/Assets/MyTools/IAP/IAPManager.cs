@@ -1,9 +1,9 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Purchasing;
 using UnityEngine.Purchasing.Security;
-using System;
 
 public class IAPManager : SingletonMonoBehaviour<IAPManager>, IStoreListener
 {
@@ -71,7 +71,7 @@ public class IAPManager : SingletonMonoBehaviour<IAPManager>, IStoreListener
             var apple = extensionProvider.GetExtension<IAppleExtensions>();
             // Begin the asynchronous process of restoring purchases. Expect a confirmation response in 
             // the Action<bool> below, and ProcessPurchase if there are previously purchased products to restore.
-            apple.RestoreTransactions((result) =>
+            apple.RestoreTransactions((result, restore) =>
             {
                 // The first phase of restoration. If no more responses are received on ProcessPurchase then 
                 // no purchases are available to be restored.
@@ -181,7 +181,7 @@ public class IAPManager : SingletonMonoBehaviour<IAPManager>, IStoreListener
         Debug.Log("[IAPManager](OnPurchaseFailed) product:" + i.definition.id + " reason: " + p.ToString());
         if (callback != null)
         {
-             callback(false, i);
+            callback(false, i);
             callback = null;
         }
     }
@@ -204,7 +204,7 @@ public class IAPManager : SingletonMonoBehaviour<IAPManager>, IStoreListener
             if (callback != null)
             {
                 callback(false, null);
-                
+
                 callback = null;
             }
         }
@@ -271,6 +271,11 @@ public class IAPManager : SingletonMonoBehaviour<IAPManager>, IStoreListener
         }
 #endif
         return PurchaseProcessingResult.Complete;
+    }
+
+    public void OnInitializeFailed(InitializationFailureReason error, string message)
+    {
+        throw new NotImplementedException();
     }
 }
 

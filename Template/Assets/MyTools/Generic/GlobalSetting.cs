@@ -14,9 +14,4 @@ public class GlobalSetting : MonoBehaviour
     {
         return Application.internetReachability != NetworkReachability.NotReachable;
     }
-
-    public void Update()
-    {
-
-    }
 }
