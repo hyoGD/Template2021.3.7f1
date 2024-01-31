@@ -49,59 +49,48 @@ namespace AppLovinMax.Scripts.IntegrationManager.Editor
             }
 
             // Download the ruby script needed to install Quality Service
-#if UNITY_2017_2_OR_NEWER
             var downloadHandler = new DownloadHandlerFile(outputFilePath);
-#else
-            var downloadHandler = new AppLovinDownloadHandler(path);
-#endif
             var postJson = string.Format("{{\"sdk_key\" : \"{0}\"}}", sdkKey);
             var bodyRaw = Encoding.UTF8.GetBytes(postJson);
             var uploadHandler = new UploadHandlerRaw(bodyRaw);
             uploadHandler.contentType = "application/json";
 
-            var unityWebRequest = new UnityWebRequest("https://api2.safedk.com/v1/build/ios_setup2")
+            using (var unityWebRequest = new UnityWebRequest("https://api2.safedk.com/v1/build/ios_setup2"))
             {
-                method = UnityWebRequest.kHttpVerbPOST,
-                downloadHandler = downloadHandler,
-                uploadHandler = uploadHandler
-            };
+                unityWebRequest.method = UnityWebRequest.kHttpVerbPOST;
+                unityWebRequest.downloadHandler = downloadHandler;
+                unityWebRequest.uploadHandler = uploadHandler;
+                var operation = unityWebRequest.SendWebRequest();
 
-#if UNITY_2017_2_OR_NEWER
-            var operation = unityWebRequest.SendWebRequest();
-#else
-            var operation = webRequest.Send();
-#endif
-
-            // Wait for the download to complete or the request to timeout.
-            while (!operation.isDone) { }
+                // Wait for the download to complete or the request to timeout.
+                while (!operation.isDone) { }
 
 #if UNITY_2020_1_OR_NEWER
-            if (unityWebRequest.result != UnityWebRequest.Result.Success)
-#elif UNITY_2017_2_OR_NEWER
-            if (unityWebRequest.isNetworkError || unityWebRequest.isHttpError)
+                if (unityWebRequest.result != UnityWebRequest.Result.Success)
 #else
-            if (webRequest.isError)
+                if (unityWebRequest.isNetworkError || unityWebRequest.isHttpError)
 #endif
-            {
-                MaxSdkLogger.UserError("AppLovin Quality Service installation failed. Failed to download script with error: " + unityWebRequest.error);
-                return;
+                {
+                    MaxSdkLogger.UserError("AppLovin Quality Service installation failed. Failed to download script with error: " + unityWebRequest.error);
+                    return;
+                }
+
+                // Check if Ruby is installed
+                var rubyVersion = AppLovinCommandLine.Run("ruby", "--version", buildPath);
+                if (rubyVersion.ExitCode != 0)
+                {
+                    MaxSdkLogger.UserError("AppLovin Quality Service installation requires Ruby. Please install Ruby, export it to your system PATH and re-export the project.");
+                    return;
+                }
+
+                // Ruby is installed, run `ruby AppLovinQualityServiceSetup.rb`
+                var result = AppLovinCommandLine.Run("ruby", OutputFileName, buildPath);
+
+                // Check if we have an error.
+                if (result.ExitCode != 0) MaxSdkLogger.UserError("Failed to set up AppLovin Quality Service");
+
+                MaxSdkLogger.UserDebug(result.Message);
             }
-
-            // Check if Ruby is installed
-            var rubyVersion = AppLovinCommandLine.Run("ruby", "--version", buildPath);
-            if (rubyVersion.ExitCode != 0)
-            {
-                MaxSdkLogger.UserError("AppLovin Quality Service installation requires Ruby. Please install Ruby, export it to your system PATH and re-export the project.");
-                return;
-            }
-
-            // Ruby is installed, run `ruby AppLovinQualityServiceSetup.rb`
-            var result = AppLovinCommandLine.Run("ruby", OutputFileName, buildPath);
-
-            // Check if we have an error.
-            if (result.ExitCode != 0) MaxSdkLogger.UserError("Failed to set up AppLovin Quality Service");
-
-            MaxSdkLogger.UserDebug(result.Message);
         }
     }
 }

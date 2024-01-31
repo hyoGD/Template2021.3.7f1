@@ -24,6 +24,7 @@ namespace AppLovinMax.Scripts.IntegrationManager.Editor
     {
         public Network AppLovinMax;
         public Network[] MediatedNetworks;
+        public Network[] PartnerMicroSdks;
     }
 
     [Serializable]
@@ -121,8 +122,7 @@ namespace AppLovinMax.Scripts.IntegrationManager.Editor
 
         public static readonly string GradleTemplatePath = Path.Combine("Assets/Plugins/Android", "mainTemplate.gradle");
         public static readonly string DefaultPluginExportPath = Path.Combine("Assets", "MaxSdk");
-        private const string DefaultMaxSdkAssetExportPath = "MaxSdk/Scripts/MaxSdk.cs";
-        private static readonly string MaxSdkAssetExportPath = Path.Combine("MaxSdk", "Scripts/MaxSdk.cs");
+        private const string MaxSdkAssetExportPath = "MaxSdk/Scripts/MaxSdk.cs";
 
         /// <summary>
         /// Some publishers might re-export our plugin via Unity Package Manager and the plugin will not be under the Assets folder. This means that the mediation adapters, settings files should not be moved to the packages folder,
@@ -164,16 +164,10 @@ namespace AppLovinMax.Scripts.IntegrationManager.Editor
             {
                 // Search for the asset with the default exported path first, In most cases, we should be able to find the asset.
                 // In some cases where we don't, use the platform specific export path to search for the asset (in case of migrating a project from Windows to Mac or vice versa).
-                var maxSdkScriptAssetPath = MaxSdkUtils.GetAssetPathForExportPath(DefaultMaxSdkAssetExportPath);
-                if (File.Exists(maxSdkScriptAssetPath))
-                {
-                    // maxSdkScriptAssetPath will always have AltDirectorySeparatorChar (/) as the path separator. Convert to platform specific path.
-                    return maxSdkScriptAssetPath.Replace(DefaultMaxSdkAssetExportPath, "")
-                        .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
-                }
+                var maxSdkScriptAssetPath = MaxSdkUtils.GetAssetPathForExportPath(MaxSdkAssetExportPath);
 
-                // We should never reach this line but leaving this in out of paranoia.
-                return MaxSdkUtils.GetAssetPathForExportPath(MaxSdkAssetExportPath).Replace(MaxSdkAssetExportPath, "")
+                // maxSdkScriptAssetPath will always have AltDirectorySeparatorChar (/) as the path separator. Convert to platform specific path.
+                return maxSdkScriptAssetPath.Replace(MaxSdkAssetExportPath, "")
                     .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
             }
         }
@@ -216,7 +210,7 @@ namespace AppLovinMax.Scripts.IntegrationManager.Editor
         /// </summary>
         public static bool CanProcessAndroidQualityServiceSettings
         {
-            get { return GradleTemplateEnabled || (GradleBuildEnabled && IsUnity2018_2OrNewer()); }
+            get { return GradleTemplateEnabled || GradleBuildEnabled; }
         }
 
         /// <summary>
@@ -286,55 +280,55 @@ namespace AppLovinMax.Scripts.IntegrationManager.Editor
         /// <param name="callback">Callback to be called once the plugin data download completes.</param>
         public IEnumerator LoadPluginData(Action<PluginData> callback)
         {
-            var url = string.Format("https://dash.applovin.com/docs/v1/unity_integration_manager?plugin_version={0}", GetPluginVersionForUrl());
-            var www = UnityWebRequest.Get(url);
+            var url = string.Format("https://unity.applovin.com/max/1.0/integration_manager_info?plugin_version={0}", MaxSdk.Version);
+            using (var www = UnityWebRequest.Get(url))
+            {
+                var operation = www.SendWebRequest();
 
-#if UNITY_2017_2_OR_NEWER
-            var operation = www.SendWebRequest();
-#else
-            var operation = www.Send();
-#endif
-
-            while (!operation.isDone) yield return new WaitForSeconds(0.1f); // Just wait till www is done. Our coroutine is pretty rudimentary.
+                while (!operation.isDone) yield return new WaitForSeconds(0.1f); // Just wait till www is done. Our coroutine is pretty rudimentary.
 
 #if UNITY_2020_1_OR_NEWER
-            if (www.result != UnityWebRequest.Result.Success)
-#elif UNITY_2017_2_OR_NEWER
-            if (www.isNetworkError || www.isHttpError)
+                if (www.result != UnityWebRequest.Result.Success)
 #else
-            if (www.isError)
+                if (www.isNetworkError || www.isHttpError)
 #endif
-            {
-                callback(null);
-            }
-            else
-            {
-                PluginData pluginData;
-                try
                 {
-                    pluginData = JsonUtility.FromJson<PluginData>(www.downloadHandler.text);
+                    callback(null);
                 }
-                catch (Exception exception)
+                else
                 {
-                    Console.WriteLine(exception);
-                    pluginData = null;
-                }
-
-                if (pluginData != null)
-                {
-                    // Get current version of the plugin
-                    var appLovinMax = pluginData.AppLovinMax;
-                    UpdateCurrentVersions(appLovinMax, PluginParentDirectory);
-
-                    // Get current versions for all the mediation networks.
-                    var mediationPluginParentDirectory = MediationSpecificPluginParentDirectory;
-                    foreach (var network in pluginData.MediatedNetworks)
+                    PluginData pluginData;
+                    try
                     {
-                        UpdateCurrentVersions(network, mediationPluginParentDirectory);
+                        pluginData = JsonUtility.FromJson<PluginData>(www.downloadHandler.text);
                     }
-                }
+                    catch (Exception exception)
+                    {
+                        Console.WriteLine(exception);
+                        pluginData = null;
+                    }
 
-                callback(pluginData);
+                    if (pluginData != null)
+                    {
+                        // Get current version of the plugin
+                        var appLovinMax = pluginData.AppLovinMax;
+                        UpdateCurrentVersions(appLovinMax, PluginParentDirectory);
+
+                        // Get current versions for all the mediation networks.
+                        var mediationPluginParentDirectory = MediationSpecificPluginParentDirectory;
+                        foreach (var network in pluginData.MediatedNetworks)
+                        {
+                            UpdateCurrentVersions(network, mediationPluginParentDirectory);
+                        }
+
+                        foreach (var partnerMicroSdk in pluginData.PartnerMicroSdks)
+                        {
+                            UpdateCurrentVersions(partnerMicroSdk, mediationPluginParentDirectory);
+                        }
+                    }
+
+                    callback(pluginData);
+                }
             }
         }
 
@@ -407,40 +401,29 @@ namespace AppLovinMax.Scripts.IntegrationManager.Editor
         /// Downloads the plugin file for a given network.
         /// </summary>
         /// <param name="network">Network for which to download the current version.</param>
+        /// <param name="showImport">Whether or not to show the import window when downloading. Defaults to <c>true</c>.</param>
         /// <returns></returns>
-        public IEnumerator DownloadPlugin(Network network)
+        public IEnumerator DownloadPlugin(Network network, bool showImport = true)
         {
             var path = Path.Combine(Application.temporaryCachePath, GetPluginFileName(network)); // TODO: Maybe delete plugin file after finishing import.
-#if UNITY_2017_2_OR_NEWER
             var downloadHandler = new DownloadHandlerFile(path);
-#else
-            var downloadHandler = new AppLovinDownloadHandler(path);
-#endif
             webRequest = new UnityWebRequest(network.DownloadUrl)
             {
                 method = UnityWebRequest.kHttpVerbGET,
                 downloadHandler = downloadHandler
             };
 
-#if UNITY_2017_2_OR_NEWER
             var operation = webRequest.SendWebRequest();
-#else
-        var operation = webRequest.Send();
-#endif
-
             while (!operation.isDone)
             {
                 yield return new WaitForSeconds(0.1f); // Just wait till webRequest is completed. Our coroutine is pretty rudimentary.
                 CallDownloadPluginProgressCallback(network.DisplayName, operation.progress, operation.isDone);
             }
 
-
 #if UNITY_2020_1_OR_NEWER
             if (webRequest.result != UnityWebRequest.Result.Success)
-#elif UNITY_2017_2_OR_NEWER
-            if (webRequest.isNetworkError || webRequest.isHttpError)
 #else
-            if (webRequest.isError)
+            if (webRequest.isNetworkError || webRequest.isHttpError)
 #endif
             {
                 MaxSdkLogger.UserError(webRequest.error);
@@ -448,9 +431,10 @@ namespace AppLovinMax.Scripts.IntegrationManager.Editor
             else
             {
                 importingNetwork = network;
-                AssetDatabase.ImportPackage(path, true);
+                AssetDatabase.ImportPackage(path, showImport);
             }
 
+            webRequest.Dispose();
             webRequest = null;
         }
 
@@ -477,6 +461,25 @@ namespace AppLovinMax.Scripts.IntegrationManager.Editor
             }
 
             MaxSdkLogger.UserError(message);
+        }
+
+        /// <summary>
+        /// Checks whether or not an adapter with the given version or newer exists.
+        /// </summary>
+        /// <param name="adapterName">The name of the network (the root adapter folder name in "MaxSdk/Mediation/" folder.</param>
+        /// <param name="version">The min adapter version to check for. Can be <c>null</c> if we want to check for any version.</param>
+        /// <returns><c>true</c> if an adapter with the min version is installed.</returns>
+        public static bool IsAdapterInstalled(string adapterName, string version = null)
+        {
+            var dependencyFilePath = MaxSdkUtils.GetAssetPathForExportPath("MaxSdk/Mediation/" + adapterName + "/Editor/Dependencies.xml");
+            if (!File.Exists(dependencyFilePath)) return false;
+
+            // If version is null, we just need the adapter installed. We don't have to check for a specific version.
+            if (version == null) return true;
+
+            var currentVersion = AppLovinIntegrationManager.GetCurrentVersions(dependencyFilePath);
+            var iosVersionComparison = MaxSdkUtils.CompareVersions(currentVersion.Ios, version);
+            return iosVersionComparison != MaxSdkUtils.VersionComparisonResult.Lesser;
         }
 
         #region Utility Methods
@@ -577,16 +580,6 @@ namespace AppLovinMax.Scripts.IntegrationManager.Editor
         }
 
         /// <summary>
-        /// Returns a URL friendly version string by replacing periods with underscores.
-        /// </summary>
-        private static string GetPluginVersionForUrl()
-        {
-            var version = MaxSdk.Version;
-            var versionsSplit = version.Split('.');
-            return string.Join("_", versionsSplit);
-        }
-
-        /// <summary>
         /// Adds labels to assets so that they can be easily found.
         /// </summary>
         /// <param name="pluginParentDir">The MAX Unity plugin's parent directory.</param>
@@ -640,7 +633,7 @@ namespace AppLovinMax.Scripts.IntegrationManager.Editor
                 didAddLabels = true;
             }
 
-            var exportPathLabel = "al_max_export_path-" + assetPath.Replace(pluginParentDir, "");
+            var exportPathLabel = "al_max_export_path-" + assetPath.Replace(pluginParentDir, "").Replace(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             if (!labels.Contains(exportPathLabel))
             {
                 labelsToAdd.Add(exportPathLabel);
@@ -776,15 +769,6 @@ namespace AppLovinMax.Scripts.IntegrationManager.Editor
             }
 
             return defaultValue;
-        }
-
-        private static bool IsUnity2018_2OrNewer()
-        {
-#if UNITY_2018_2_OR_NEWER
-            return true;
-#else
-            return false;
-#endif
         }
 
         private static string GetPluginFileName(Network network)

@@ -306,7 +306,7 @@ public class MaxSdkUtils
         return false;
 #endif
     }
-    
+
 #if UNITY_IOS
     [DllImport("__Internal")]
     private static extern bool _MaxIsPhysicalDevice();
@@ -344,6 +344,83 @@ public class MaxSdkUtils
         return _MaxScreenDensity();
 #elif UNITY_ANDROID
         return MaxUnityPluginClass.CallStatic<float>("getScreenDensity");
+#else
+        return -1;
+#endif
+    }
+
+    /// <summary>
+    /// Parses the IAB TCF String to determine the consent status for the IAB vendor with the provided ID.
+    /// </summary>
+    /// <param name="vendorId">Vendor ID as defined in the Global Vendor List.</param>
+    /// <returns>The consent status of the IAB vendor. Returns <c>true</c> if the vendor has consent, <c>false</c> if not, or <c>null</c> if no TCF string is available on disk.</returns>
+    /// <see href="https://vendor-list.consensu.org/v3/vendor-list.json">Current Version of Global Vendor List</see>
+    public static bool? GetTcfConsentStatus(int vendorId)
+    {
+        var tcfConsentStatus = GetPlatformSpecificTcfConsentStatus(vendorId);
+        if (tcfConsentStatus == -1)
+        {
+            return null;
+        }
+        else
+        {
+            return tcfConsentStatus == 1;
+        }
+    }
+
+#if UNITY_IOS
+    [DllImport("__Internal")]
+    private static extern int _MaxGetTcfConsentStatus(int vendorIdentifier);
+#endif
+
+    private static int GetPlatformSpecificTcfConsentStatus(int vendorId)
+    {
+#if UNITY_EDITOR
+        return -1;
+#elif UNITY_IOS
+        return _MaxGetTcfConsentStatus(vendorId);
+#elif UNITY_ANDROID
+        return MaxUnityPluginClass.CallStatic<int>("getTcfConsentStatus", vendorId);
+#else
+        return -1;
+#endif
+    }
+
+    /// <summary>
+    /// Parses the Google UMP's Additional Consent (AC) string to determine the consent status for the advertising entity represented by the provided Ad Technology Provider (ATP) ID.
+    /// </summary>
+    /// <param name="atpId">The ID representing the advertising entity (e.g. 89 for Meta Audience Network).</param>
+    /// <returns>
+    /// The consent status of the advertising entity. Returns <c>true</c> if the entity has consent, <c>false</c> if not, or <c>null</c> if no AC string is available on disk.
+    /// </returns>
+    /// <see href="https://support.google.com/admanager/answer/9681920">Google’s Additional Consent Mode technical specification</see>
+    /// <see href="https://storage.googleapis.com/tcfac/additional-consent-providers.csv">List of Google ATPs and their IDs</see>
+    public static bool? GetAdditionalConsentStatus(int atpId)
+    {
+        var additionalConsentStatus = GetPlatformSpecificAdditionalConsentStatus(atpId);
+        if (additionalConsentStatus == -1)
+        {
+            return null;
+        }
+        else
+        {
+            return additionalConsentStatus == 1;
+        }
+    }
+
+#if UNITY_IOS
+    [DllImport("__Internal")]
+    private static extern int _MaxGetAdditionalConsentStatus(int atpIdentifier);
+#endif
+
+    private static int GetPlatformSpecificAdditionalConsentStatus(int atpId)
+    {
+#if UNITY_EDITOR
+        return -1;
+#elif UNITY_IOS
+        return _MaxGetAdditionalConsentStatus(atpId);
+#elif UNITY_ANDROID
+        return MaxUnityPluginClass.CallStatic<int>("getAdditionalConsentStatus", atpId);
 #else
         return -1;
 #endif
@@ -496,6 +573,16 @@ public class MaxSdkUtils
         return VersionComparisonResult.Equal;
     }
 
+    /// <summary>
+    /// Check if the given string is valid - not <c>null</c> and not empty.
+    /// </summary>
+    /// <param name="toCheck">The string to be checked.</param>
+    /// <returns><c>true</c> if the given string is not <c>null</c> and not empty.</returns>
+    public static bool IsValidString(string toCheck)
+    {
+        return !string.IsNullOrEmpty(toCheck);
+    }
+
 #if UNITY_EDITOR
     /// <summary>
     /// Gets the path of the asset in the project for a given MAX plugin export path.
@@ -505,7 +592,8 @@ public class MaxSdkUtils
     public static string GetAssetPathForExportPath(string exportPath)
     {
         var defaultPath = Path.Combine("Assets", exportPath);
-        var assetGuids = AssetDatabase.FindAssets("l:al_max_export_path-" + exportPath);
+        var assetLabelToFind = "l:al_max_export_path-" + exportPath.Replace(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var assetGuids = AssetDatabase.FindAssets(assetLabelToFind);
 
         return assetGuids.Length < 1 ? defaultPath : AssetDatabase.GUIDToAssetPath(assetGuids[0]);
     }
